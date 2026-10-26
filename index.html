@@ -1,0 +1,2256 @@
+<!--
+    Gestor Integral Farmacias (v1.0.0 - Cloud Upload & Local Save)
+    Original idea by Zuhaitz (Alberto V. I.) created with Google Gemini and VSCodium
+    License: GNU General Public License v3.0 (GPL v3)
+-->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor Integral de Farmacias</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDZvKRt7TlgTbzVhWOhcwJ1Ogau4lyYjI8",
+            authDomain: "gestor-integral-farmacias.firebaseapp.com",
+            projectId: "gestor-integral-farmacias",
+            storageBucket: "gestor-integral-farmacias.firebasestorage.app",
+            messagingSenderId: "803337236496",
+            appId: "1:803337236496:web:cebb99b9c0f5e518049a95"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+
+        window.saveToFirebase = async function() {
+            const user = auth.currentUser;
+            if (!user) {
+                alert("Debes iniciar sesión con Google para guardar en la nube.");
+                return;
+            }
+            if (!confirm("¿Estás seguro de continuar?")) {
+                return;
+            }
+            try {
+                const docRef = doc(db, "usuarios_datos", user.uid);
+                await setDoc(docRef, {
+                    globalTechnician: appState.globalTechnician,
+                    pharmacies: appState.pharmacies.filter(f => f.nombre || f.codigo_cliente)
+                });
+                showCheckPopup();
+            } catch (e) {
+                console.error("Error al guardar en Firestore:", e);
+                alert("Error al guardar en la nube.");
+            }
+        };
+
+        window.loadFromFirebase = async function() {
+            const user = auth.currentUser;
+            if (!user) return;
+            try {
+                const docRef = doc(db, "usuarios_datos", user.uid);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.globalTechnician) {
+                        appState.globalTechnician = data.globalTechnician;
+                        document.getElementById('globalTechnicianInput').value = data.globalTechnician;
+                    }
+                    if (Array.isArray(data.pharmacies)) {
+                        appState.pharmacies = data.pharmacies;
+                        appState.selectedPharmacyId = null;
+                    }
+                    showCheckPopup();
+                    renderWorkspace();
+                }
+            } catch (e) {
+                console.error("Error al cargar de Firestore:", e);
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            const authContainer = document.getElementById('authContainer');
+            if (user) {
+                authContainer.innerHTML = `
+                    <button type="button" id="btnCloudSave" class="btn-light" title="Guardar en la nube (${user.email})" style="height: 38px; min-width: 38px; width: 38px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                    </button>
+                    <button type="button" id="btnCloudLogout" class="btn-danger" title="Cerrar sesión" style="height: 38px; min-width: 38px; width: 38px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                    </button>
+                `;
+                document.getElementById('btnCloudSave').onclick = saveToFirebase;
+                document.getElementById('btnCloudLogout').onclick = () => {
+                    signOut(auth).then(() => {
+                        appState.pharmacies = [];
+                        appState.selectedPharmacyId = null;
+                        appState.globalTechnician = "";
+                        const techInput = document.getElementById('globalTechnicianInput');
+                        if (techInput) techInput.value = "";
+                        renderWorkspace();
+                    });
+                };
+                loadFromFirebase();
+            } else {
+                authContainer.innerHTML = `
+                    <button type="button" id="btnLoginGoogle" class="btn-light" title="Iniciar sesión con Google" style="height: 38px; padding: 0 12px; font-size: 0.75rem; letter-spacing: 0.5px; white-space: nowrap; font-weight: 700; width: auto; min-width: unset;">Google Login</button>
+                `;
+                document.getElementById('btnLoginGoogle').onclick = async () => {
+                    try {
+                        await signInWithPopup(auth, provider);
+                    } catch (error) {
+                        console.error("Error en login con pop-up:", error);
+                    }
+                };
+            }
+        });
+    </script>
+    
+    <style>
+        html {
+            scrollbar-gutter: stable;
+            color-scheme: dark;
+        }
+
+        :root {
+            --bg-dark: #1e1e1e;          
+            --card-bg: #2d2d2d;          
+            --card-focus-bg: #383838;    
+            --input-bg: #161616;         
+            --input-focus: #242424;      
+            --border: #444444;           
+            --border-focus: #f4f4f5;     
+            --text-main: #fcfcfc;        
+            --text-muted: #999999;       
+            --accent: #f4f4f5;           
+            --accent-text: #18181b;      
+            --radius: 6px;               
+            --font-main: 'Ubuntu', system-ui, -apple-system, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes popupFadeOut {
+            0% { opacity: 1; transform: scale(1); }
+            76.9% { opacity: 1; transform: scale(1); }
+            100% { opacity: 0; transform: scale(0.95); }
+        }
+
+        .success-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(45, 45, 45, 0.95);
+            border: 2px solid var(--border-focus);
+            color: var(--text-main);
+            font-size: 3rem;
+            padding: 24px 40px;
+            border-radius: var(--radius);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: popupFadeOut 1.3s ease-in-out forwards;
+        }
+
+        .custom-scrollbar, textarea {
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) var(--card-bg);
+            transition: scrollbar-color 0.3s ease;
+        }
+        .custom-scrollbar::-webkit-scrollbar, textarea::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track, textarea::-webkit-scrollbar-track {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: var(--radius);
+        }
+        .custom-scrollbar::-webkit-scrollbar-button, textarea::-webkit-scrollbar-button {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .container {
+            max-width: 980px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        header.header-banner {
+            position: relative;
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 0 20px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            background-color: var(--card-bg);
+            height: 70px;
+            min-height: 70px;
+            max-height: 70px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .header-canvas-container {
+            position: absolute;
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .header-canvas-container canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+        }
+
+        .header-content { 
+            position: relative; 
+            z-index: 2; 
+        }
+
+        header h1 { 
+            color: var(--text-main); 
+            font-size: 1.25rem; 
+            letter-spacing: -0.5px; 
+            margin-bottom: 2px; 
+            font-weight: 700; 
+        }
+
+        .header-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 300;
+            letter-spacing: 0.3px;
+            margin-bottom: 0;
+        }
+
+        .global-top-bar {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .global-technician-bar {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+            align-items: center;
+        }
+
+        .global-technician-bar input {
+            height: 38px;
+            padding: 0 14px;
+            flex: 1;
+        }
+
+        .global-pharmacy-group {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+            position: relative;
+        }
+
+        .custom-search-wrapper {
+            position: relative;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .custom-search-input {
+            height: 38px;
+            padding: 0 14px;
+            width: 100%;
+            background-color: var(--input-bg);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: var(--radius);
+            font-size: 0.9rem;
+            outline: none;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            gap: 12px;
+            overflow: hidden;
+        }
+
+        .custom-search-input:focus {
+            border-color: var(--border-focus);
+            background-color: var(--input-focus);
+            box-shadow: 0 0 0 2px rgba(244, 244, 245, 0.2);
+        }
+
+        .custom-dropdown-panel {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            width: 100%;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+
+        .custom-dropdown-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            color: var(--text-main);
+            border-bottom: 1px solid rgba(68, 68, 68, 0.5);
+            transition: background 0.15s ease;
+            gap: 12px;
+        }
+
+        .custom-dropdown-item:last-child {
+            border-bottom: none;
+        }
+
+        .custom-dropdown-item:hover {
+            background-color: var(--card-focus-bg);
+        }
+
+        .pharmacy-name-fade {
+            text-align: left;
+            font-weight: 500;
+            color: #fcfcfc;
+            white-space: nowrap;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .pharmacy-name-fade.with-fade {
+            overflow: hidden;
+            -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 15px), transparent 100%);
+            mask-image: linear-gradient(to right, #000 calc(100% - 15px), transparent 100%);
+        }
+
+        .badges-container {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .audit-badge {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 400;
+            display: inline-block;
+            width: 75px;
+            text-align: left;
+            flex-shrink: 0;
+        }
+
+        .hefame-badge {
+            font-size: 0.75rem;
+            color: var(--text-main);
+            font-weight: 700;
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+            text-align: right;
+            width: 42px;
+            flex-shrink: 0;
+        }
+
+        .check-slot {
+            display: inline-block;
+            width: 14px;
+            text-align: center;
+        }
+
+        @media (min-width: 600px) {
+            .global-top-bar {
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 20px;
+                gap: 12px;
+            }
+            .global-technician-bar { flex: 1; }
+            .global-pharmacy-group { flex: 1; }
+        }
+
+        .nav-tabs-main {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .tab-main-btn {
+            flex: 1;
+            padding: 12px;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            border-radius: var(--radius);
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            transition: all 0.2s ease;
+            text-align: center;
+        }
+
+        .tab-main-btn:hover {
+            border-color: var(--border-focus);
+            color: var(--text-main);
+        }
+
+        .tab-main-btn.active {
+            background-color: var(--accent);
+            color: var(--accent-text);
+            border-color: var(--border-focus);
+            box-shadow: 0 0 10px rgba(244, 244, 245, 0.25);
+        }
+
+        #workspaceArea { 
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            margin-bottom: 20px;
+        }
+
+        .section-box {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+            transition: all 0.25s ease;
+        }
+
+        .section-box:focus-within {
+            background-color: var(--card-focus-bg);
+            border-color: var(--border-focus);
+            box-shadow: 0 0 20px rgba(244, 244, 245, 0.08), 0 8px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        .section-title {
+            color: var(--text-main);
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-bottom: 18px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: space-between;
+            min-height: 34px;
+        }
+
+        .section-title-header { display: flex; align-items: center; gap: 8px; }
+
+        .workstation-controls-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+
+        .copy-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--border);
+            width: 100%;
+            justify-content: flex-end;
+        }
+
+        .workstation-action-btn {
+            background-color: var(--input-bg);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            border-radius: 4px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            height: 30px;
+        }
+
+        .workstation-action-btn:hover {
+            background-color: var(--input-focus);
+            color: #fff;
+            border-color: var(--border-focus);
+        }
+
+        .copy-toolbar select.workstation-action-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            background-size: 12px;
+            padding-right: 28px;
+            width: auto;
+        }
+
+        .selector-box { background: #252525; border: 1px solid var(--border); }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr; gap: 14px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr; gap: 14px; }
+        .grid-subgrid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid-options { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 14px; }
+
+        @media (min-width: 600px) {
+            .grid-2 { grid-template-columns: 1fr 1fr; gap: 16px; }
+            .grid-3 { grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+            .grid-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+            body { padding: 30px; }
+            .section-box { padding: 20px 24px; }
+        }
+
+        .field-group { display: flex; flex-direction: column; margin-bottom: 6px; }
+
+        label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        input, select, textarea {
+            font-family: var(--font-main);
+            background-color: var(--input-bg);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 10px 14px; 
+            border-radius: var(--radius);
+            font-size: 0.9rem;
+            width: 100%;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        input::placeholder { color: #666666; opacity: 1; }
+
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--border-focus);
+            background-color: var(--input-focus);
+            box-shadow: 0 0 0 2px rgba(244, 244, 245, 0.2);
+        }
+
+        textarea { resize: vertical; min-height: 40px; }
+
+        select {
+            cursor: pointer;
+            font-weight: 500;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-color: var(--input-bg);
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 14px center;
+            background-size: 16px;
+            padding-right: 38px;
+        }
+
+        select option { background-color: var(--card-bg); color: #fcfcfc; }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            background: var(--input-bg);
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            transition: all 0.2s ease;
+        }
+
+        .checkbox-group:hover { border-color: var(--border-focus); background: var(--input-focus); }
+        .checkbox-group input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; outline: none; }
+        .checkbox-group label { margin-bottom: 0; color: var(--text-main); font-size: 0.8rem; cursor: pointer; text-transform: none; font-weight: 400; }
+
+        .actions {
+            position: sticky;
+            bottom: 16px;
+            background: rgba(30, 30, 30, 0.92);
+            backdrop-filter: blur(12px);
+            padding: 12px 14px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+            z-index: 100;
+            margin-top: auto;
+        }
+
+        .actions button { flex: 1; min-width: 45%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+
+        @media (min-width: 600px) {
+            .actions { bottom: 24px; padding: 14px 22px; gap: 12px; justify-content: flex-end; flex-wrap: nowrap; }
+            .actions button { flex: unset; min-width: 120px; }
+        }
+
+        button {
+            font-family: var(--font-main);
+            padding: 10px 18px;
+            border-radius: var(--radius);
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            outline: none;
+        }
+
+        button:focus, button:active { box-shadow: 0 0 0 2px rgba(244, 244, 245, 0.25); }
+
+        .btn-light {
+            background-color: var(--accent);
+            color: var(--accent-text);
+            border: 1px solid var(--border-focus);
+        }
+        .btn-light:hover { background-color: #ffffff; box-shadow: 0 0 10px rgba(244, 244, 245, 0.25); }
+
+        .btn-dark {
+            background-color: #383838;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+        }
+        .btn-dark:hover { background-color: #454545; border-color: var(--border-focus); }
+
+        .btn-danger {
+            background-color: #383838;
+            color: #f66151;
+            border: 1px solid var(--border);
+        }
+        .btn-danger:hover { background-color: #454545; border-color: #ed333b; color: #ed333b; }
+
+        .visit-card {
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: border-color 0.2s ease;
+        }
+        .visit-card:hover { border-color: var(--border-focus); }
+
+        .visit-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: none;
+            padding-bottom: 4px;
+        }
+
+        .plain-text-link {
+            color: var(--text-muted);
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+
+        .plain-text-link:hover, .plain-text-link:active { color: var(--text-main); }
+
+        .plain-text-link svg {
+            opacity: 0.6;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .plain-text-link:hover svg, .plain-text-link:active svg {
+            opacity: 1;
+            transform: translateX(3px);
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(4px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 12px;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .modal-content {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 16px;
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 440px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.7);
+            box-sizing: border-box;
+        }
+
+        .modal-content textarea, .modal-content select, .modal-content input {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .workstation-box .workstation-body { display: none; }
+        .workstation-box.expanded .workstation-body { display: block; }
+
+        @media print {
+            @page { size: A4; margin: 10mm; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            html, body { background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; width: 100%; font-size: 11pt; animation: none !important; }
+            .container { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
+            .actions, button, .selector-box, .copy-toolbar, .nav-tabs-main, .global-top-bar, .success-popup, .workstation-action-btn, .header-canvas-container, .visit-header div:last-child { display: none !important; }
+            
+            header.header-banner {
+                background-color: #ffffff !important;
+                border: none !important;
+                border-bottom: 2px solid #111111 !important;
+                box-shadow: none !important;
+                padding: 0 0 6mm 0 !important;
+                margin-bottom: 6mm !important;
+                border-radius: 0 !important;
+                height: auto !important;
+                min-height: unset !important;
+            }
+            header h1 { color: #000000 !important; }
+            .header-subtitle { color: #555555 !important; }
+
+            .section-box, .workstation-box { background-color: #ffffff !important; border: 1px solid #dcdcdc !important; border-radius: var(--radius); page-break-inside: avoid; margin-bottom: 6mm; padding: 6mm 8mm !important; box-shadow: none !important; }
+            .visit-card { background-color: #ffffff !important; border: 1px solid #dcdcdc !important; color: #111111 !important; }
+            .visit-card span, .visit-card p { color: #111111 !important; }
+            .workstation-box .workstation-body { display: block !important; }
+            .section-title { color: #000000 !important; border-bottom: 1px solid #333333 !important; font-size: 0.85rem !important; margin-bottom: 4mm !important; padding-bottom: 3mm !important; }
+            label { color: #555555 !important; font-size: 0.65rem !important; margin-bottom: 2mm !important; }
+            input, select, textarea { background-color: #fafafa !important; border: 1px solid #cccccc !important; color: #111111 !important; padding: 4px 6mm !important; font-size: 0.8rem !important; border-radius: var(--radius) !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header class="header-banner">
+        <div class="header-canvas-container">
+            <canvas id="headerCanvas"></canvas>
+        </div>
+        <div class="header-content">
+            <h1 id="headerTitle">Gestor Integral Farmacias</h1>
+            <p class="header-subtitle" id="headerSubtitle">Control de clientes, visitas y auditoría técnica</p>
+        </div>
+    </header>
+
+    <div class="global-top-bar">
+        <div class="global-technician-bar">
+            <input type="text" id="globalTechnicianInput" placeholder="Nombre Comercial-Formador | Técnico" oninput="appState.globalTechnician = this.value">
+            <div id="authContainer" style="display: flex; gap: 6px; align-items: center;">
+                <button type="button" id="btnLoginGoogle" class="btn-light" title="Iniciar sesión con Google" style="height: 38px; padding: 0 12px; font-size: 0.75rem; letter-spacing: 0.5px; white-space: nowrap; font-weight: 700; width: auto; min-width: unset;">Google Login</button>
+            </div>
+        </div>
+        <div class="global-pharmacy-group">
+            <div class="custom-search-wrapper">
+                <div id="globalPharmacySearchInput" class="custom-search-input" style="cursor: pointer; height: 38px;" onclick="openGlobalPharmacyPanel()">
+                    <span id="globalPharmacyTextDisplay" style="color: #666666; width: 100%;">-- Listado de Farmacias --</span>
+                </div>
+                <div id="globalPharmacyPanel" class="custom-dropdown-panel custom-scrollbar"></div>
+            </div>
+            <button type="button" class="btn-light" onclick="createNewPharmacy()" title="Nueva Farmacia" style="height: 38px; min-width: 38px; width: 38px; padding: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="nav-tabs-main">
+        <button class="tab-main-btn active" id="tabMainDetails" onclick="switchMainTab('details')">Ficha de Farmacia</button>
+        <button class="tab-main-btn" id="tabMainTimeline" onclick="switchMainTab('timeline')">VISITAS (GLOBAL)</button>
+    </div>
+
+    <div id="workspaceArea"></div>
+
+    <div class="actions">
+        <input type="file" id="fileInput" accept=".json" multiple style="display: none;" onchange="loadJSON(event)">
+        <button type="button" class="btn-light" onclick="document.getElementById('fileInput').click()">
+            Abrir / Cargar
+        </button>
+        <button type="button" class="btn-light" onclick="saveJSON()">Guardar</button>
+        <button type="button" class="btn-dark" onclick="clearForm()">Limpiar</button>
+        <button type="button" class="btn-dark" onclick="window.print()">PDF / Imprimir</button>
+    </div>
+</div>
+
+<script>
+    let appState = {
+        globalTechnician: "",
+        mainTab: 'details',
+        selectedPharmacyId: null,
+        pharmacies: []
+    };
+
+    const visitTypesList = [
+        "Visita: Comercial informativa",
+        "Visita: Comercial gestión",
+        "Visita: Comercial periódica",
+        "Visita: Formación software",
+        "Visita: Migración software",
+        "Visita: Intervención técnica"
+    ];
+
+    const optionalFieldMappings = [
+        { check: 'checkRobot', target: 'optRobot' },
+        { check: 'checkCajon', target: 'optCajon' },
+        { check: 'checkVerificador', target: 'optVerificador' },
+        { check: 'checkVisorCliente', target: 'optVisorCliente' },
+        { check: 'checkPDA', target: 'optPDA' },
+        { check: 'checkGestorTurnos', target: 'optGestorTurnos' },
+        { check: 'checkRedBackup', target: 'optRedBackup' }
+    ];
+
+    const ramOptions = ["", "1 GB", "2 GB", "4 GB", "8 GB", "16 GB", "32 GB", "64 GB o más", "Otro"];
+    const diskCapacityOptions = ["", "60 GB / 64 GB", "120 GB / 128 GB", "240 GB / 256 GB", "480 GB / 512 GB", "1 TB", "2 TB", "4 TB o más", "80 GB / 160 GB / 320 GB", "500 GB", "Otro"];
+    const diskTypeOptions = ["", "SSD SATA", "SSD NVMe / M.2", "HDD Mecánico", "Configuración RAID", "Múltiples Discos", "Otro"];
+    const nicOptions = ["", "10 Mbps Ethernet", "100 Mbps Ethernet", "1 Gbps Ethernet", "2.5 Gbps Ethernet", "5 Gbps Ethernet", "10 Gbps Ethernet", "Otro"];
+
+    let originalTextareaHeights = new Map();
+
+    window.addEventListener('beforeprint', () => {
+        const titleEl = document.getElementById('headerTitle');
+        if (titleEl) {
+            titleEl.dataset.originalText = titleEl.innerText;
+            const activeP = getActivePharmacy();
+            if (activeP && activeP.nombre) {
+                titleEl.innerText = activeP.nombre;
+            }
+        }
+        originalTextareaHeights.clear();
+        document.querySelectorAll('textarea').forEach(el => {
+            originalTextareaHeights.set(el, el.style.height);
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        });
+    });
+
+    window.addEventListener('afterprint', () => {
+        const titleEl = document.getElementById('headerTitle');
+        if (titleEl && titleEl.dataset.originalText) {
+            titleEl.innerText = titleEl.dataset.originalText;
+        }
+        document.querySelectorAll('textarea').forEach(el => {
+            if (originalTextareaHeights.has(el)) {
+                el.style.height = originalTextareaHeights.get(el);
+            }
+        });
+        originalTextareaHeights.clear();
+    });
+
+    function generateSelectOptions(optionsArray, selectedValue = "") {
+        return optionsArray.map(opt => `<option value="${opt}" ${opt === selectedValue ? 'selected' : ''}>${opt === "" ? "-- Seleccionar --" : opt}</option>`).join('');
+    }
+
+    function createBlankAuditObject(fechaStr = "") {
+        const todayStr = fechaStr || new Date().toISOString().split('T')[0];
+        return {
+            id: Date.now(),
+            fecha: todayStr,
+            configuracion: { puestosSelector: "", checkSAI: false, numImpDoc: 1, numImpTicket: 1 },
+            opcionalesChecks: {},
+            puestos: [],
+            router_farmacia: "",
+            router_privado: "",
+            imp_documentos: [""],
+            imp_tickets: [""],
+            opt_robot: "", opt_cajon: "", opt_verificador: "", opt_visor: "", opt_pda: "", opt_turnos: "", opt_backup: "",
+            diag_criticos: "", diag_oportunidades: "", diag_propuesta: "", diag_revision: ""
+        };
+    }
+
+    function ensureAuditStructure(p) {
+        if (!p) return;
+        if (!p.auditorias || !Array.isArray(p.auditorias) || p.auditorias.length === 0) {
+            const fechaBase = p.fecha_visita || new Date().toISOString().split('T')[0];
+            const legacyAudit = {
+                id: Date.now(),
+                fecha: fechaBase,
+                configuracion: p.configuracion || { puestosSelector: "", checkSAI: false, numImpDoc: 1, numImpTicket: 1 },
+                opcionalesChecks: p.opcionalesChecks || {},
+                puestos: p.puestos || [],
+                router_farmacia: p.router_farmacia || "",
+                router_privado: p.router_privado || "",
+                imp_documentos: p.imp_documentos || [""],
+                imp_tickets: p.imp_tickets || [""],
+                opt_robot: p.opt_robot || "",
+                opt_cajon: p.opt_cajon || "",
+                opt_verificador: p.opt_verificador || "",
+                opt_visor: p.opt_visor || "",
+                opt_pda: p.opt_pda || "",
+                opt_turnos: p.opt_turnos || "",
+                opt_backup: p.opt_backup || "",
+                diag_criticos: p.diag_criticos || "",
+                diag_oportunidades: p.diag_oportunidades || "",
+                diag_propuesta: p.diag_propuesta || "",
+                diag_revision: p.diag_revision || ""
+            };
+            p.auditorias = [legacyAudit];
+            p.selectedAuditIndex = 0;
+        }
+        if (p.selectedAuditIndex === undefined || p.selectedAuditIndex >= p.auditorias.length) {
+            p.selectedAuditIndex = 0;
+        }
+    }
+
+    function getActiveAudit(p) {
+        ensureAuditStructure(p);
+        return p.auditorias[p.selectedAuditIndex];
+    }
+
+    function isPharmacyAudited(p) {
+        if (!p) return false;
+        const audit = getActiveAudit(p);
+        return !!(audit && audit.configuracion && audit.configuracion.puestosSelector && audit.configuracion.puestosSelector !== "");
+    }
+
+    function updateTopBarPharmacySelect() {
+        const displayContainer = document.getElementById('globalPharmacyTextDisplay');
+        if (!displayContainer) return;
+        const active = getActivePharmacy();
+        if (active) {
+            let hasAudit = isPharmacyAudited(active);
+            let isLogistica = active.hefame_informatica === 'Cliente Logística' || active.hefame_informatica === 'Ambos';
+            let isSoftware = active.hefame_informatica === 'Cliente Software' || active.hefame_informatica === 'Ambos';
+            let auditText = hasAudit ? "[Auditada]" : "";
+            let logisticaSymbol = isLogistica ? '✓' : '&nbsp;';
+            let softwareSymbol = isSoftware ? '✓' : '&nbsp;';
+            let nameStr = active.nombre || 'Farmacia sin nombre';
+            let fadeClass = hasAudit ? "pharmacy-name-fade with-fade" : "pharmacy-name-fade";
+            displayContainer.style.color = "var(--text-main)";
+            displayContainer.style.display = "flex";
+            displayContainer.style.alignItems = "center";
+            displayContainer.style.justifyContent = "space-between";
+            displayContainer.style.gap = "12px";
+            displayContainer.style.width = "100%";
+            displayContainer.innerHTML = `
+                <span class="${fadeClass}">${nameStr}</span>
+                <div class="badges-container">
+                    <span class="audit-badge">${auditText}</span>
+                    <div class="hefame-badge"><span class="check-slot">${logisticaSymbol}</span><span class="check-slot">${softwareSymbol}</span></div>
+                </div>
+            `;
+        } else {
+            displayContainer.style.display = "block";
+            displayContainer.style.color = "#666666";
+            displayContainer.style.width = "100%";
+            displayContainer.innerText = "-- Listado de Farmacias --";
+        }
+        renderCustomPharmacyPanel('');
+    }
+
+    function openGlobalPharmacyPanel() {
+        const panel = document.getElementById('globalPharmacyPanel');
+        if (panel) {
+            panel.style.display = 'block';
+            renderCustomPharmacyPanel('');
+        }
+    }
+
+    function filterGlobalPharmacyPanel(query) {
+        const panel = document.getElementById('globalPharmacyPanel');
+        if (panel) {
+            panel.style.display = 'block';
+            renderCustomPharmacyPanel(query);
+        }
+    }
+
+    function formatToApellidosNombre(str) {
+        if (!str) return '';
+        const words = str.trim().split(/\s+/);
+        if (words.length <= 1) return str;
+        const name = words[0];
+        const surnames = words.slice(1).join(' ');
+        return `${surnames}, ${name}`;
+    }
+
+    function renderCustomPharmacyPanel(filterText = '') {
+        const panel = document.getElementById('globalPharmacyPanel');
+        if (!panel) return;
+        const q = filterText.toLowerCase();
+
+        let filtered = appState.pharmacies.filter(f => {
+            let nameStr = (f.nombre || '').toLowerCase();
+            let codeStr = (f.codigo_cliente || '').toLowerCase();
+            return nameStr.includes(q) || codeStr.includes(q);
+        });
+
+        if (filtered.length === 0) {
+            panel.innerHTML = '';
+            panel.style.display = 'none';
+            return;
+        }
+
+        filtered.sort((a, b) => {
+            const formatA = formatToApellidosNombre(a.nombre || '').toLowerCase();
+            const formatB = formatToApellidosNombre(b.nombre || '').toLowerCase();
+            return formatA.localeCompare(formatB, 'es', { sensitivity: 'base' });
+        });
+
+        panel.innerHTML = filtered.map(f => {
+            let hasAudit = isPharmacyAudited(f);
+            let auditText = hasAudit ? "[Auditada]" : "";
+            let isLogistica = f.hefame_informatica === 'Cliente Logística' || f.hefame_informatica === 'Ambos';
+            let isSoftware = f.hefame_informatica === 'Cliente Software' || f.hefame_informatica === 'Ambos';
+            let logisticaSymbol = isLogistica ? '✓' : '&nbsp;';
+            let softwareSymbol = isSoftware ? '✓' : '&nbsp;';
+            let rawName = f.nombre || 'Farmacia sin nombre';
+            let displayName = formatToApellidosNombre(rawName);
+            let fadeClass = hasAudit ? "pharmacy-name-fade with-fade" : "pharmacy-name-fade";
+            return `
+                <div class="custom-dropdown-item" onclick="changePharmacyFromTopBar(${f.id})">
+                    <span class="${fadeClass}">${displayName}</span>
+                    <div class="badges-container">
+                        <span class="audit-badge">${auditText}</span>
+                        <div class="hefame-badge"><span class="check-slot">${logisticaSymbol}</span><span class="check-slot">${softwareSymbol}</span></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    document.addEventListener('click', function(e) {
+        const wrapper = document.querySelector('.custom-search-wrapper');
+        const panel = document.getElementById('globalPharmacyPanel');
+        if (wrapper && panel && !wrapper.contains(e.target)) {
+            panel.style.display = 'none';
+        }
+    });
+
+    function changePharmacyFromTopBar(id) {
+        appState.selectedPharmacyId = id === "" ? null : parseInt(id);
+        const panel = document.getElementById('globalPharmacyPanel');
+        if (panel) panel.style.display = 'none';
+        renderWorkspace();
+    }
+
+    function switchMainTab(tab) {
+        appState.mainTab = tab;
+        document.getElementById('tabMainDetails').classList.remove('active');
+        document.getElementById('tabMainTimeline').classList.remove('active');
+
+        if (tab === 'details') {
+            document.getElementById('tabMainDetails').classList.add('active');
+            document.getElementById('headerSubtitle').innerText = "Ficha de cliente, visitas y auditoría técnica de equipamiento";
+        } else if (tab === 'timeline') {
+            document.getElementById('tabMainTimeline').classList.add('active');
+            document.getElementById('headerSubtitle').innerText = "Historial cronológico global de visitas comerciales y técnicas";
+        }
+        renderWorkspace();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function getActivePharmacy() {
+        if (!appState.selectedPharmacyId) return null;
+        return appState.pharmacies.find(x => x.id === appState.selectedPharmacyId) || null;
+    }
+
+    function renderWorkspace() {
+        updateTopBarPharmacySelect();
+        const area = document.getElementById('workspaceArea');
+        area.innerHTML = '';
+
+        if (appState.mainTab === 'details') {
+            renderPharmacyDetails(area);
+        } else {
+            renderGlobalTimeline(area);
+        }
+    }
+
+    function createNewPharmacy() {
+        const newPharmacy = {
+            id: Date.now(),
+            nombre: "",
+            titular: "",
+            fecha_visita: "",
+            codigo_cliente: "",
+            hefame_informatica: "",
+            direccion: "",
+            telefono: "",
+            email: "",
+            distribuidor: "",
+            software: "",
+            agrupacion: "",
+            observaciones: "",
+            auditorias: [createBlankAuditObject()],
+            selectedAuditIndex: 0,
+            visitas: []
+        };
+        appState.pharmacies.push(newPharmacy);
+        appState.selectedPharmacyId = newPharmacy.id;
+        renderWorkspace();
+    }
+
+    let headerAnimId = null;
+    function initHeaderMoleculesAnimation() {
+        const canvas = document.getElementById('headerCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        
+        const dpr = window.devicePixelRatio || 1;
+        let width = canvas.parentElement.clientWidth;
+        let height = canvas.parentElement.clientHeight;
+        
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+        ctx.scale(dpr, dpr);
+
+        const REAL_MOLECULES = [
+            {
+                id: "paracetamol",
+                points: [
+                    {x: 0, y: -20, t: 'C'}, {x: 17, y: -10, t: 'C'}, {x: 17, y: 10, t: 'C'},
+                    {x: 0, y: 20, t: 'C'}, {x: -17, y: 10, t: 'C'}, {x: -17, y: -10, t: 'C'},
+                    {x: 0, y: -35, t: 'O'}, {x: 0, y: 32, t: 'N'}, {x: 14, y: 40, t: 'C'},
+                    {x: 28, y: 32, t: 'C'}, {x: 14, y: 55, t: 'O'}
+                ],
+                bonds: [[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[0,6],[3,7],[7,8],[8,9],[8,10]]
+            },
+            {
+                id: "aspirin",
+                points: [
+                    {x: 0, y: -15, t: 'C'}, {x: 15, y: -7, t: 'C'}, {x: 15, y: 10, t: 'C'},
+                    {x: 0, y: 18, t: 'C'}, {x: -15, y: 10, t: 'C'}, {x: -15, y: -7, t: 'C'},
+                    {x: 30, y: -15, t: 'C'}, {x: 30, y: -30, t: 'O'}, {x: 43, y: -7, t: 'O'},
+                    {x: -30, y: 18, t: 'O'}, {x: -43, y: 10, t: 'C'}, {x: -56, y: 18, t: 'C'}, {x: -43, y: -5, t: 'O'}
+                ],
+                bonds: [[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[1,6],[6,7],[6,8],[4,9],[9,10],[10,11],[10,12]]
+            },
+            {
+                id: "caffeine",
+                points: [
+                    {x: -12, y: -15, t: 'C'}, {x: 12, y: -15, t: 'N'}, {x: 22, y: 0, t: 'C'},
+                    {x: 12, y: 15, t: 'C'}, {x: -12, y: 15, t: 'N'}, {x: -22, y: 0, t: 'C'},
+                    {x: 35, y: -8, t: 'N'}, {x: 35, y: 12, t: 'C'}, {x: 22, y: 22, t: 'N'},
+                    {x: -35, y: 0, t: 'O'}, {x: -18, y: -28, t: 'O'},
+                    {x: 18, y: -28, t: 'C'}, {x: 48, y: -15, t: 'C'}, {x: -18, y: 28, t: 'C'}
+                ],
+                bonds: [[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[2,6],[6,7],[7,8],[8,3],[5,9],[0,10],[1,11],[6,12],[4,13]]
+            },
+            {
+                id: "cbd",
+                points: [
+                    {x: -30, y: -10, t: 'C'}, {x: -15, y: -18, t: 'C'}, {x: 0, y: -10, t: 'C'},
+                    {x: 0, y: 8, t: 'C'}, {x: -15, y: 16, t: 'C'}, {x: -30, y: 8, t: 'C'},
+                    {x: 15, y: 16, t: 'C'}, {x: 28, y: 8, t: 'C'}, {x: 41, y: 16, t: 'C'}, {x: 54, y: 8, t: 'C'}, {x: 67, y: 16, t: 'C'},
+                    {x: -15, y: -32, t: 'O'}, {x: -15, y: 30, t: 'O'},
+                    {x: -45, y: -18, t: 'C'}, {x: -60, y: -10, t: 'C'}, {x: -60, y: 8, t: 'C'}, {x: -45, y: 16, t: 'C'}
+                ],
+                bonds: [[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[3,6],[6,7],[7,8],[8,9],[9,10],[1,11],[4,12],[0,13],[13,14],[14,15],[15,16],[16,5]]
+            }
+        ];
+
+        let floatingMolecules = REAL_MOLECULES.map(mol => ({
+            ...mol,
+            x: Math.random() * (width - 120) + 60,
+            y: Math.random() * (height - 30) + 15,
+            vx: (Math.random() - 0.5) * 0.2,
+            vy: (Math.random() - 0.5) * 0.2,
+            rotation: Math.random() * Math.PI * 2,
+            vRotation: (Math.random() - 0.5) * 0.001
+        }));
+
+        function loop() {
+            ctx.clearRect(0, 0, width, height);
+            floatingMolecules.forEach(mol => {
+                mol.x += mol.vx; mol.y += mol.vy; mol.rotation += mol.vRotation;
+                if (mol.x < 40 || mol.x > width - 40) mol.vx *= -1;
+                if (mol.y < 15 || mol.y > height - 15) mol.vy *= -1;
+
+                ctx.save();
+                ctx.translate(mol.x, mol.y);
+                ctx.rotate(mol.rotation);
+                ctx.globalAlpha = 0.33;
+                
+                ctx.strokeStyle = 'rgba(153, 153, 153, 0.35)';
+                ctx.lineWidth = 1.2;
+                mol.bonds.forEach(([i1, i2]) => {
+                    let p1 = mol.points[i1], p2 = mol.points[i2];
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                });
+
+                mol.points.forEach(p => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.t === 'C' ? 1.8 : 2.4, 0, Math.PI * 2);
+                    ctx.fillStyle = p.t === 'O' ? '#f66151' : (p.t === 'N' ? '#f4f4f5' : '#fcfcfc');
+                    ctx.fill();
+                });
+
+                ctx.restore();
+            });
+            headerAnimId = requestAnimationFrame(loop);
+        }
+        loop();
+    }
+
+    function renderPharmacyDetails(area) {
+        const pharmacy = getActivePharmacy();
+        if (!pharmacy) {
+            area.innerHTML = '';
+            return;
+        }
+
+        ensureAuditStructure(pharmacy);
+        const activeAudit = getActiveAudit(pharmacy);
+
+        let visitsHtml = (pharmacy.visitas || []).map(v => `
+            <div class="visit-card">
+                <div class="visit-header">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span style="font-weight: 700; font-size: 0.85rem; color: #fff;">${v.fecha}</span>
+                        <span style="font-size: 0.80rem; color: var(--text-muted); font-weight: 500;">${v.tipo}</span>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <button class="btn-dark" style="height: 38px; padding: 0 14px; font-size: 0.75rem; display: flex; align-items: center; justify-content: center;" onclick="editVisitSummaryModal(${pharmacy.id}, ${v.id})">Resumen</button>
+                        <button class="btn-danger" style="height: 38px; width: 38px; min-width: 38px; padding: 0; display: flex; align-items: center; justify-content: center;" onclick="if(confirm('¿Estás seguro de continuar?')) deleteVisit(${pharmacy.id}, ${v.id})" title="Eliminar Visita">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('') || '<p style="color: var(--text-muted); font-size: 0.85rem;">No hay visitas registradas para esta farmacia.</p>';
+
+        let valClient = pharmacy.hefame_informatica || "";
+        let isLogistica = valClient === 'Cliente Logística' || valClient === 'Ambos';
+        let isSoftware = valClient === 'Cliente Software' || valClient === 'Ambos';
+        let btnLogisticaSymbol = isLogistica ? '✓' : '&nbsp;';
+        let btnSoftwareSymbol = isSoftware ? '✓' : '&nbsp;';
+
+        let auditSelectOptions = pharmacy.auditorias.map((a, idx) => 
+            `<option value="${idx}" ${idx === pharmacy.selectedAuditIndex ? 'selected' : ''}>${a.fecha || 'Sin fecha'}</option>`
+        ).join('');
+
+        let canDeleteAudit = pharmacy.auditorias.length > 1;
+
+        area.innerHTML = `
+            <div class="section-box" style="transition: none !important;">
+                <div class="section-title">
+                    <div class="section-title-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                        <span>Ficha</span>
+                    </div>
+                    <button class="btn-danger" style="height: 38px; width: 38px; min-width: 38px; padding: 0; display: flex; align-items: center; justify-content: center;" onclick="deletePharmacy(${pharmacy.id})" title="Eliminar Farmacia">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+                <div class="field-group" style="margin-bottom: 14px;">
+                    <label>Farmacia / Titular</label>
+                    <input type="text" value="${pharmacy.nombre || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'nombre', this.value); updatePharmacyField(${pharmacy.id}, 'titular', this.value);">
+                </div>
+                <div class="grid-2">
+                    <div class="field-group">
+                        <label>Dirección / Ubicación</label>
+                        <input type="text" value="${pharmacy.direccion || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'direccion', this.value)">
+                    </div>
+                    <div class="field-group">
+                        <label>Código Cliente / Cliente</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" value="${pharmacy.codigo_cliente || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'codigo_cliente', this.value)" style="flex: 0.9;">
+                            <button type="button" onclick="cycleHefameInf(${pharmacy.id})" style="height: 38px; padding: 0 10px; background-color: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius); font-weight: 700; font-size: 0.75rem; text-transform: uppercase; cursor: pointer; display: flex; align-items: center; justify-content: space-between; outline: none; color: var(--text-muted); flex: 1.1; min-width: 0; white-space: nowrap; overflow: hidden;">
+                                <span style="display: inline-flex; align-items: center; gap: 3px; overflow: hidden; text-overflow: ellipsis;">Logística <span class="check-slot" style="color: var(--text-main);">${btnLogisticaSymbol}</span></span>
+                                <span style="display: inline-flex; align-items: center; gap: 3px; overflow: hidden; text-overflow: ellipsis;">Informática <span class="check-slot" style="color: var(--text-main);">${btnSoftwareSymbol}</span></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="field-group">
+                        <label>Teléfono de Contacto</label>
+                        <input type="text" value="${pharmacy.telefono || pharmacy.contacto || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'telefono', this.value)">
+                    </div>
+                    <div class="field-group">
+                        <label>Email de Contacto</label>
+                        <input type="text" value="${pharmacy.email || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'email', this.value)">
+                    </div>
+                    <div class="field-group">
+                        <label>Software</label>
+                        <input type="text" value="${pharmacy.software || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'software', this.value)">
+                    </div>
+                    <div class="field-group">
+                        <label>Distribuidor Principal</label>
+                        <input type="text" value="${pharmacy.distribuidor || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'distribuidor', this.value)">
+                    </div>
+                    <div class="field-group" style="grid-column: 1 / -1;">
+                        <label>Agrupación / Grupo de compras</label>
+                        <input type="text" value="${pharmacy.agrupacion || ''}" oninput="updatePharmacyField(${pharmacy.id}, 'agrupacion', this.value)">
+                    </div>
+                </div>
+                <div class="field-group" style="margin-top: 10px;">
+                    <label>Observaciones Clave de la Farmacia</label>
+                    <textarea rows="2" oninput="updatePharmacyField(${pharmacy.id}, 'observaciones', this.value)">${pharmacy.observaciones || ''}</textarea>
+                </div>
+            </div>
+
+            <div class="section-box">
+                <div class="section-title">
+                    <div class="section-title-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                        <span>Visitas</span>
+                    </div>
+                    <button type="button" class="btn-light" style="width: 38px; height: 38px; min-width: 38px; padding: 0; display: flex; align-items: center; justify-content: center;" onclick="registerVisitModal(${pharmacy.id})" title="Registrar Nueva Visita">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                </div>
+                <div class="custom-scrollbar" style="max-height: 60vh; overflow-y: auto; padding-right: 4px;">
+                    <div id="visitsHistoryContainer">
+                        ${visitsHtml}
+                    </div>
+                </div>
+            </div>
+
+            <form id="auditForm">
+                <div class="section-box selector-box">
+                    <div class="section-title" style="flex-wrap: wrap; gap: 10px;">
+                        <div class="section-title-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                            <span>Configuración de Equipamiento y Dispositivos</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+                            <button type="button" class="btn-light" style="width: 38px; height: 38px; min-width: 38px; padding: 0; display: flex; align-items: center; justify-content: center;" onclick="openNewAuditModal(${pharmacy.id})" title="Crear nueva versión de auditoría">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            </button>
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                <select id="auditVersionSelector" style="height: 38px; width: 140px; font-size: 0.8rem; font-weight: 700; padding: 0 28px 0 10px;" onchange="changeAuditVersion(this.value)">
+                                    ${auditSelectOptions}
+                                </select>
+                                <input type="date" id="auditDateField" value="${activeAudit.fecha || ''}" style="height: 38px; width: 140px; font-size: 0.8rem; padding: 0 8px;" onchange="updateAuditDate(this.value)">
+                                ${canDeleteAudit ? `<button type="button" class="btn-danger" style="height: 38px; width: 38px; min-width: 38px; padding: 0; display: flex; align-items: center; justify-content: center;" onclick="if(confirm('¿Eliminar esta revisión?')) deleteCurrentAuditVersion(${pharmacy.id})" title="Eliminar esta revisión"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="field-group" style="margin-bottom: 14px;">
+                        <label>Estructura de Red y Puestos Base:</label>
+                        <select id="puestosSelector" onchange="updateAuditUI()">
+                            <option value="" selected>-- Seleccionar --</option>
+                            <option value="monopuesto">Monopuesto (1 Único PC)</option>
+                            <option value="servidor-1">Servidor + 1 Puesto (2 PCs)</option>
+                            <option value="servidor-2">Servidor + 2 Puestos (3 PCs)</option>
+                            <option value="servidor-3">Servidor + 3 Puestos (4 PCs)</option>
+                            <option value="servidor-4">Servidor + 4 Puestos (5 PCs)</option>
+                            <option value="servidor-5">Servidor + 5 Puestos (6 PCs)</option>
+                            <option value="servidor-6">Servidor + 6 Puestos (7 PCs)</option>
+                            <option value="servidor-7">Servidor + 7 Puestos (8 PCs)</option>
+                            <option value="servidor-8">Servidor + 8 Puestos (9 PCs)</option>
+                            <option value="servidor-9">Servidor + 9 Puestos (10 PCs)</option>
+                            <option value="servidor-10">Servidor + 10 Puestos (11 PCs)</option>
+                            <option value="servidor-11">Servidor + 11 Puestos (12 PCs)</option>
+                        </select>
+                    </div>
+
+                    <label>Equipamiento opcional presente:</label>
+                    <div class="grid-options">
+                        <div class="checkbox-group"><input type="checkbox" id="checkSAI" onchange="toggleOptionalFields()"><label for="checkSAI">SAI / Protecciones Eléctricas</label></div>
+                        <div class="checkbox-group"><input type="checkbox" id="checkRobot" onchange="toggleOptionalFields()"><label for="checkRobot">Robot / Automatización</label></div>
+                        <div class="checkbox-group"><input type="checkbox" id="checkCajon" onchange="toggleOptionalFields()"><label for="checkCajon">Cajón portamonedas</label></div>
+                        <div class="checkbox-group"><input type="checkbox" id="checkVerificador" onchange="toggleOptionalFields()"><label for="checkVerificador">Verificador / Lector Precios</label></div>
+                        <div class="checkbox-group"><input type="checkbox" id="checkVisorCliente" onchange="toggleOptionalFields()"><label for="checkVisorCliente">Visor / Pantallas Cliente</label></div>
+                        <div class="checkbox-group"><input type="checkbox" id="checkPDA" onchange="toggleOptionalFields()"><label for="checkPDA">PDA / Escáner Almacén</label></div>
+                        <div class="checkbox-group"><input type="checkbox" id="checkGestorTurnos" onchange="toggleOptionalFields()"><label for="checkGestorTurnos">Gestor de Colas / Turnos</label></div>
+                        <div class="checkbox-group"><input type="checkbox" id="checkRedBackup" onchange="toggleOptionalFields()"><label for="checkRedBackup">Línea Backup 4G/5G</label></div>
+                    </div>
+                </div>
+
+                <div id="puestosContainer"></div>
+
+                <div class="section-box">
+                    <div class="section-title">
+                        <div class="section-title-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                            <span>Infraestructura y Periféricos</span>
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="field-group"><label>Router Farmacia (Colegio)</label><input type="text" id="router_farmacia" value="${activeAudit.router_farmacia || ''}" oninput="updateActiveAuditField('router_farmacia', this.value)"></div>
+                        <div class="field-group"><label>Router Privado (Particular)</label><input type="text" id="router_privado" value="${activeAudit.router_privado || ''}" oninput="updateActiveAuditField('router_privado', this.value)"></div>
+                    </div>
+
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin: 18px 0 10px 0; letter-spacing: 1px; border-bottom: 1px dashed var(--border); padding-bottom: 6px;">Gestión de Impresoras</div>
+                    <div class="grid-2" style="margin-bottom: 12px;">
+                        <div class="field-group">
+                            <label>Nº Impresoras Documentos / A4</label>
+                            <select id="numImpDoc" onchange="updatePrintersUI()">
+                                <option value="1">1 Impresora</option>
+                                <option value="2">2 Impresoras</option>
+                                <option value="3">3 Impresoras</option>
+                            </select>
+                        </div>
+                        <div class="field-group">
+                            <label>Nº Impresoras de Tickets</label>
+                            <select id="numImpTicket" onchange="updatePrintersUI()">
+                                <option value="1">1 Impresora</option>
+                                <option value="2">2 Impresoras</option>
+                                <option value="3">3 Impresoras</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid-2" id="printersContainer"></div>
+
+                    <div class="grid-2" style="margin-top: 15px;">
+                        <div class="field-group opt-field" id="optRobot" style="display: none;"><label>Robot / Dispensador Automatizado</label><input type="text" id="opt_robot" value="${activeAudit.opt_robot || ''}" oninput="updateActiveAuditField('opt_robot', this.value)"></div>
+                        <div class="field-group opt-field" id="optCajon" style="display: none;"><label>Cajón portamonedas</label><input type="text" id="opt_cajon" value="${activeAudit.opt_cajon || ''}" oninput="updateActiveAuditField('opt_cajon', this.value)"></div>
+                        <div class="field-group opt-field" id="optVerificador" style="display: none;"><label>Verificador / Lector de Precios</label><input type="text" id="opt_verificador" value="${activeAudit.opt_verificador || ''}" oninput="updateActiveAuditField('opt_verificador', this.value)"></div>
+                        <div class="field-group opt-field" id="optVisorCliente" style="display: none;"><label>Visores / Pantallas Mostrador</label><input type="text" id="opt_visor" value="${activeAudit.opt_visor || ''}" oninput="updateActiveAuditField('opt_visor', this.value)"></div>
+                        <div class="field-group opt-field" id="optPDA" style="display: none;"><label>PDA / Escáner Móvil Almacén</label><input type="text" id="opt_pda" value="${activeAudit.opt_pda || ''}" oninput="updateActiveAuditField('opt_pda', this.value)"></div>
+                        <div class="field-group opt-field" id="optGestorTurnos" style="display: none;"><label>Sistema Gestión de Colas</label><input type="text" id="opt_turnos" value="${activeAudit.opt_turnos || ''}" oninput="updateActiveAuditField('opt_turnos', this.value)"></div>
+                        <div class="field-group opt-field" id="optRedBackup" style="display: none;"><label>Conexión Backup 4G/5G</label><input type="text" id="opt_backup" value="${activeAudit.opt_backup || ''}" oninput="updateActiveAuditField('opt_backup', this.value)"></div>
+                    </div>
+                </div>
+
+                <div class="section-box">
+                    <div class="section-title">
+                        <div class="section-title-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                            <span>Diagnóstico y Propuesta</span>
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="field-group"><label>Puntos Críticos Detectados</label><textarea id="diag_criticos" rows="1" oninput="updateActiveAuditField('diag_criticos', this.value)">${activeAudit.diag_criticos || ''}</textarea></div>
+                        <div class="field-group"><label>Oportunidades de Mejora</label><textarea id="diag_oportunidades" rows="1" oninput="updateActiveAuditField('diag_oportunidades', this.value)">${activeAudit.diag_oportunidades || ''}</textarea></div>
+                        <div class="field-group"><label>Propuesta Recomendada</label><textarea id="diag_propuesta" rows="1" oninput="updateActiveAuditField('diag_propuesta', this.value)">${activeAudit.diag_propuesta || ''}</textarea></div>
+                        <div class="field-group"><label>Próxima Revisión</label><textarea id="diag_revision" rows="1" oninput="updateActiveAuditField('diag_revision', this.value)">${activeAudit.diag_revision || ''}</textarea></div>
+                    </div>
+                </div>
+            </form>
+        `;
+
+        populateAuditFromState();
+    }
+
+    function changeAuditVersion(indexStr) {
+        const p = getActivePharmacy();
+        if (p) {
+            p.selectedAuditIndex = parseInt(indexStr);
+            renderWorkspace();
+        }
+    }
+
+    function updateAuditDate(newDate) {
+        const p = getActivePharmacy();
+        if (p) {
+            const audit = getActiveAudit(p);
+            if (audit) {
+                audit.fecha = newDate;
+                const selector = document.getElementById('auditVersionSelector');
+                if (selector && selector.options[p.selectedAuditIndex]) {
+                    selector.options[p.selectedAuditIndex].text = newDate || 'Sin fecha';
+                }
+            }
+        }
+    }
+
+    function openNewAuditModal(pharmacyId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (!p) return;
+
+        if (!isPharmacyAudited(p)) {
+            createNewAuditVersion(pharmacyId, null, 'blank');
+            return;
+        }
+
+        const modalId = 'modalNewAudit_' + Date.now();
+
+        const modalDiv = document.createElement('div');
+        modalDiv.className = 'modal-overlay';
+        modalDiv.id = modalId;
+        modalDiv.innerHTML = `
+            <div class="modal-content">
+                <div class="section-title" style="margin-bottom: 14px;"><span>Crear Nueva Revisión</span></div>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">Selecciona cómo deseas inicializar la nueva revisión de auditoría:</p>
+                
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+                    <button type="button" class="btn-light" style="padding: 12px; text-align: left; text-transform: none; font-weight: 500; font-size: 0.85rem;" onclick="createNewAuditVersion(${pharmacyId}, '${modalId}', 'clone')">
+                        <strong style="display: block; font-weight: 700; margin-bottom: 2px;">Copiar equipamiento actual</strong>
+                    </button>
+
+                    <button type="button" class="btn-dark" style="padding: 12px; text-align: left; text-transform: none; font-weight: 500; font-size: 0.85rem;" onclick="createNewAuditVersion(${pharmacyId}, '${modalId}', 'blank')">
+                        <strong style="display: block; font-weight: 700; margin-bottom: 2px;">Auditoría en blanco</strong>
+                    </button>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end;">
+                    <button type="button" class="btn-dark" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalDiv);
+    }
+
+    function createNewAuditVersion(pharmacyId, modalId, mode) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (!p) return;
+
+        ensureAuditStructure(p);
+        const currentAudit = getActiveAudit(p);
+
+        let newAudit = createBlankAuditObject();
+
+        if (mode === 'clone' && currentAudit) {
+            newAudit.configuracion = JSON.parse(JSON.stringify(currentAudit.configuracion || {}));
+            newAudit.opcionalesChecks = JSON.parse(JSON.stringify(currentAudit.opcionalesChecks || {}));
+            newAudit.puestos = JSON.parse(JSON.stringify(currentAudit.puestos || []));
+            newAudit.router_farmacia = currentAudit.router_farmacia || "";
+            newAudit.router_privado = currentAudit.router_privado || "";
+            newAudit.imp_documentos = JSON.parse(JSON.stringify(currentAudit.imp_documentos || [""]));
+            newAudit.imp_tickets = JSON.parse(JSON.stringify(currentAudit.imp_tickets || [""]));
+            newAudit.opt_robot = currentAudit.opt_robot || "";
+            newAudit.opt_cajon = currentAudit.opt_cajon || "";
+            newAudit.opt_verificador = currentAudit.opt_verificador || "";
+            newAudit.opt_visor = currentAudit.opt_visor || "";
+            newAudit.opt_pda = currentAudit.opt_pda || "";
+            newAudit.opt_turnos = currentAudit.opt_turnos || "";
+            newAudit.opt_backup = currentAudit.opt_backup || "";
+        }
+
+        p.auditorias.push(newAudit);
+        p.selectedAuditIndex = p.auditorias.length - 1;
+
+        if (modalId) {
+            const modalEl = document.getElementById(modalId);
+            if (modalEl) modalEl.remove();
+        }
+        renderWorkspace();
+    }
+
+    function deleteCurrentAuditVersion(pharmacyId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (!p || !p.auditorias || p.auditorias.length <= 1) return;
+
+        p.auditorias.splice(p.selectedAuditIndex, 1);
+        if (p.selectedAuditIndex >= p.auditorias.length) {
+            p.selectedAuditIndex = p.auditorias.length - 1;
+        }
+        renderWorkspace();
+    }
+
+    function updateActiveAuditField(field, value) {
+        const p = getActivePharmacy();
+        if (p) {
+            const audit = getActiveAudit(p);
+            if (audit) {
+                audit[field] = value;
+            }
+        }
+    }
+
+    function cycleHefameInf(pharmacyId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (p) {
+            if (!p.hefame_informatica) {
+                p.hefame_informatica = "Cliente Logística";
+            } else if (p.hefame_informatica === "Cliente Logística") {
+                p.hefame_informatica = "Ambos";
+            } else if (p.hefame_informatica === "Ambos") {
+                p.hefame_informatica = "Cliente Software";
+            } else {
+                p.hefame_informatica = "";
+            }
+            renderWorkspace();
+        }
+    }
+
+    function updatePharmacyField(id, field, value) {
+        const p = appState.pharmacies.find(x => x.id === id);
+        if (p) {
+            p[field] = value;
+            if (field === 'nombre') {
+                p.titular = value;
+            }
+            if (field === 'software') {
+                const audit = getActiveAudit(p);
+                if (audit && audit.puestos && Array.isArray(audit.puestos)) {
+                    audit.puestos.forEach(puesto => {
+                        puesto.software = value;
+                    });
+                    document.querySelectorAll('.puesto-software').forEach(input => {
+                        input.value = value;
+                    });
+                }
+            }
+            updateTopBarPharmacySelect();
+        }
+    }
+
+    function updateAuditUI() {
+        const selector = document.getElementById('puestosSelector');
+        const container = document.getElementById('puestosContainer');
+        const option = selector.value;
+        const p = getActivePharmacy();
+        if (!p) return;
+
+        const audit = getActiveAudit(p);
+        if (!audit) return;
+
+        audit.configuracion.puestosSelector = option;
+        
+        container.innerHTML = '';
+        if (!option) {
+            updateTopBarPharmacySelect();
+            return;
+        }
+        
+        let workstationConfigs = [];
+        if (option === 'monopuesto') {
+            workstationConfigs.push({ title: 'Servidor - Monopuesto', index: 0 });
+        } else {
+            const secondaryCount = parseInt(option.split('-')[1]);
+            workstationConfigs.push({ title: 'Servidor', index: 0 });
+            for (let i = 1; i <= secondaryCount; i++) {
+                workstationConfigs.push({ title: `Puesto ${i}`, index: i });
+            }
+        }
+
+        while (audit.puestos.length < workstationConfigs.length) {
+            audit.puestos.push({ cpu: '', ram: '', disco_cap: '', disco_tipo: '', nic: '', so: '', software: p.software || '', antivirus: '', monitor: '', escaner: '', sai: '', observaciones: '' });
+        }
+
+        workstationConfigs.forEach((ws, idx) => {
+            const box = document.createElement('div');
+            box.className = 'section-box workstation-box';
+            box.dataset.puestoIndex = idx;
+
+            let copyOptionsHTML = '<option value="">Copiar desde...</option>';
+            workstationConfigs.forEach((targetWs, targetIdx) => {
+                if (targetIdx !== idx) {
+                    copyOptionsHTML += `<option value="${targetIdx}">${targetWs.title}</option>`;
+                }
+            });
+
+            let copyToolbar = `
+                <div class="copy-toolbar">
+                    <select id="copyFrom_${idx}" class="workstation-action-btn">
+                        ${copyOptionsHTML}
+                    </select>
+                    <button type="button" class="workstation-action-btn" onclick="copyWorkstationConfig(${idx})">Copiar</button>
+                </div>
+            `;
+
+            const wsData = audit.puestos[idx] || {};
+
+            box.innerHTML = `
+                <div class="section-title" style="flex-direction: column; align-items: stretch; gap: 4px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div class="section-title-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line></svg>
+                            <span>${ws.title}</span>
+                        </div>
+                        <div class="workstation-controls-container">
+                            <button type="button" class="workstation-action-btn" onclick="toggleWorkstation(this)">Expandir ▼</button>
+                        </div>
+                    </div>
+                    ${copyToolbar}
+                </div>
+                
+                <div class="workstation-body">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; letter-spacing: 1px; border-bottom: 1px dashed var(--border); padding-bottom: 6px;">Hardware</div>
+                    <div class="grid-2" style="margin-bottom: 14px;">
+                        <div class="field-group"><label>Procesador (CPU)</label><input type="text" class="puesto-cpu" value="${wsData.cpu || ''}" oninput="updateWorkstationState(${idx}, 'cpu', this.value)"></div>
+                        <div class="field-group"><label>Memoria RAM</label><select class="puesto-ram" onchange="updateWorkstationState(${idx}, 'ram', this.value)">${generateSelectOptions(ramOptions, wsData.ram)}</select></div>
+                        
+                        <div class="field-group">
+                            <label>Almacenamiento (Disco)</label>
+                            <div class="grid-subgrid-2">
+                                <select class="puesto-disco-cap" onchange="updateWorkstationState(${idx}, 'disco_cap', this.value)">${generateSelectOptions(diskCapacityOptions, wsData.disco_cap)}</select>
+                                <select class="puesto-disco-tipo" onchange="updateWorkstationState(${idx}, 'disco_tipo', this.value)">${generateSelectOptions(diskTypeOptions, wsData.disco_tipo)}</select>
+                            </div>
+                        </div>
+
+                        <div class="field-group"><label>Tarjeta de red</label><select class="puesto-nic" onchange="updateWorkstationState(${idx}, 'nic', this.value)">${generateSelectOptions(nicOptions, wsData.nic)}</select></div>
+                        <div class="field-group"><label>Monitor / Pantalla</label><input type="text" class="puesto-monitor" value="${wsData.monitor || ''}" oninput="updateWorkstationState(${idx}, 'monitor', this.value)"></div>
+                        <div class="field-group"><label>Escáner / Lector de código de barras</label><input type="text" class="puesto-escaner" value="${wsData.escaner || ''}" oninput="updateWorkstationState(${idx}, 'escaner', this.value)"></div>
+                        <div class="field-group sai-puesto-field" style="display: none;">
+                            <label>SAI / Protección Eléctrica</label>
+                            <input type="text" class="puesto-sai" value="${wsData.sai || ''}" oninput="updateWorkstationState(${idx}, 'sai', this.value)">
+                        </div>
+                    </div>
+
+                    <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; letter-spacing: 1px; border-bottom: 1px dashed var(--border); padding-bottom: 6px;">Software</div>
+                    <div class="grid-2">
+                        <div class="field-group"><label>Sistema Operativo</label><input type="text" class="puesto-so" value="${wsData.so || ''}" oninput="updateWorkstationState(${idx}, 'so', this.value)"></div>
+                        <div class="field-group"><label>Software</label><input type="text" class="puesto-software" value="${wsData.software || ''}" oninput="updateWorkstationState(${idx}, 'software', this.value)"></div>
+                        <div class="field-group"><label>Antivirus / Licencia</label><input type="text" class="puesto-antivirus" value="${wsData.antivirus || ''}" oninput="updateWorkstationState(${idx}, 'antivirus', this.value)"></div>
+                        <div class="field-group"><label>Observaciones</label><input type="text" class="puesto-obs" value="${wsData.observaciones || ''}" oninput="updateWorkstationState(${idx}, 'observaciones', this.value)"></div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(box);
+        });
+
+        toggleOptionalFields();
+        updateTopBarPharmacySelect();
+    }
+
+    function toggleWorkstation(btn) {
+        const box = btn.closest('.workstation-box');
+        box.classList.toggle('expanded');
+        btn.innerText = box.classList.contains('expanded') ? 'Colapsar ▲' : 'Expandir ▼';
+    }
+
+    function updateWorkstationState(idx, field, value) {
+        const p = getActivePharmacy();
+        if (p) {
+            const audit = getActiveAudit(p);
+            if (audit && audit.puestos[idx]) {
+                audit.puestos[idx][field] = value;
+            }
+        }
+    }
+
+    function copyWorkstationConfig(targetIndex) {
+        const selectSource = document.getElementById(`copyFrom_${targetIndex}`);
+        if (!selectSource || selectSource.value === "") return;
+
+        const sourceIdx = parseInt(selectSource.value);
+        const p = getActivePharmacy();
+        if (p) {
+            const audit = getActiveAudit(p);
+            if (audit && audit.puestos[sourceIdx]) {
+                audit.puestos[targetIndex] = JSON.parse(JSON.stringify(audit.puestos[sourceIdx]));
+                updateAuditUI();
+            }
+        }
+    }
+
+    function toggleOptionalFields() {
+        const p = getActivePharmacy();
+        if (!p) return;
+        const audit = getActiveAudit(p);
+        if (!audit) return;
+
+        const checkSAIVal = document.getElementById('checkSAI').checked;
+        audit.configuracion.checkSAI = checkSAIVal;
+        
+        document.querySelectorAll('.sai-puesto-field').forEach(field => {
+            field.style.display = checkSAIVal ? 'flex' : 'none';
+        });
+
+        optionalFieldMappings.forEach(item => {
+            const chk = document.getElementById(item.check);
+            const target = document.getElementById(item.target);
+            if (chk && target) {
+                audit.opcionalesChecks[item.check] = chk.checked;
+                target.style.display = chk.checked ? 'flex' : 'none';
+            }
+        });
+    }
+
+    function updatePrintersUI() {
+        const p = getActivePharmacy();
+        if (!p) return;
+        const audit = getActiveAudit(p);
+        if (!audit) return;
+
+        const container = document.getElementById('printersContainer');
+        const numDoc = parseInt(document.getElementById('numImpDoc').value) || 1;
+        const numTicket = parseInt(document.getElementById('numImpTicket').value) || 1;
+
+        audit.configuracion.numImpDoc = numDoc;
+        audit.configuracion.numImpTicket = numTicket;
+
+        while (audit.imp_documentos.length < numDoc) audit.imp_documentos.push("");
+        while (audit.imp_tickets.length < numTicket) audit.imp_tickets.push("");
+
+        container.innerHTML = '';
+
+        for (let i = 0; i < numDoc; i++) {
+            const val = audit.imp_documentos[i] || '';
+            const div = document.createElement('div');
+            div.className = 'field-group';
+            div.innerHTML = `<label>Impresora Documentos / A4 (${i + 1})</label><input type="text" value="${val}" oninput="let activeP = getActivePharmacy(); if(activeP) { let a = getActiveAudit(activeP); if(a) a.imp_documentos[${i}] = this.value; }">`;
+            container.appendChild(div);
+        }
+
+        for (let i = 0; i < numTicket; i++) {
+            const val = audit.imp_tickets[i] || '';
+            const div = document.createElement('div');
+            div.className = 'field-group';
+            div.innerHTML = `<label>Impresora de Tickets (${i + 1})</label><input type="text" value="${val}" oninput="let activeP = getActivePharmacy(); if(activeP) { let a = getActiveAudit(activeP); if(a) a.imp_tickets[${i}] = this.value; }">`;
+            container.appendChild(div);
+        }
+    }
+
+    function populateAuditFromState() {
+        const p = getActivePharmacy();
+        if (!p) return;
+
+        const audit = getActiveAudit(p);
+        if (!audit) return;
+
+        if (audit.configuracion && audit.configuracion.puestosSelector) {
+            document.getElementById('puestosSelector').value = audit.configuracion.puestosSelector;
+            updateAuditUI();
+        } else {
+            document.getElementById('puestosSelector').value = "";
+            document.getElementById('puestosContainer').innerHTML = "";
+        }
+
+        document.getElementById('checkSAI').checked = !!(audit.configuracion && audit.configuracion.checkSAI);
+        document.getElementById('numImpDoc').value = (audit.configuracion && audit.configuracion.numImpDoc) || "1";
+        document.getElementById('numImpTicket').value = (audit.configuracion && audit.configuracion.numImpTicket) || "1";
+        updatePrintersUI();
+
+        if (audit.opcionalesChecks) {
+            for (const [k, v] of Object.entries(audit.opcionalesChecks)) {
+                const chk = document.getElementById(k);
+                if (chk) chk.checked = !!v;
+            }
+        }
+        toggleOptionalFields();
+    }
+
+    function renderGlobalTimeline(area) {
+        let allVisits = [];
+        appState.pharmacies.forEach(f => {
+            if (f.visitas && Array.isArray(f.visitas)) {
+                f.visitas.forEach(v => {
+                    allVisits.push({
+                        ...v,
+                        pharmacyId: f.id,
+                        pharmacyName: f.nombre || 'Farmacia sin nombre'
+                    });
+                });
+            }
+        });
+
+        allVisits.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+        if (allVisits.length === 0) {
+            area.innerHTML = '';
+            return;
+        }
+
+        let globalVisitsHtml = allVisits.map(v => `
+            <div class="visit-card">
+                <div class="visit-header">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span style="font-weight: 700; font-size: 0.85rem; color: #fff;">${v.fecha}</span>
+                        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">${v.tipo}</span>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <button class="btn-dark" style="height: 38px; padding: 0 14px; font-size: 0.75rem; display: flex; align-items: center; justify-content: center;" onclick="editVisitSummaryModal(${v.pharmacyId}, ${v.id})">Resumen</button>
+                    </div>
+                </div>
+                <div style="font-size: 0.9rem; font-weight: 700; color: var(--text-main);">
+                    <a class="plain-text-link" onclick="selectPharmacyFromTimeline(${v.pharmacyId})">
+                        ${v.pharmacyName}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                    </a>
+                </div>
+            </div>
+        `).join('');
+
+        area.innerHTML = `
+            <div class="section-box">
+                <div class="section-title">
+                    <span>VISITAS (GLOBAL)</span>
+                </div>
+                <div class="custom-scrollbar" style="max-height: 60vh; overflow-y: auto; padding-right: 4px;">
+                    ${globalVisitsHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    function selectPharmacyFromTimeline(id) {
+        appState.selectedPharmacyId = id;
+        switchMainTab('details');
+    }
+
+    function deletePharmacy(id) {
+        if (confirm("¿Estás seguro?")) {
+            appState.pharmacies = appState.pharmacies.filter(x => x.id !== id);
+            appState.selectedPharmacyId = null;
+            renderWorkspace();
+        }
+    }
+
+    function registerVisitModal(pharmacyId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (!p) return;
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const currentTimeStr = new Date().toTimeString().slice(0, 5);
+        const modalId = 'modalVisit_' + Date.now();
+        
+        let checkboxesHtml = visitTypesList.map((type, idx) => `
+            <div class="checkbox-group" style="margin-bottom: 6px;">
+                <input type="checkbox" id="${modalId}_type_${idx}" value="${type}">
+                <label for="${modalId}_type_${idx}">${type}</label>
+            </div>
+        `).join('');
+
+        const modalDiv = document.createElement('div');
+        modalDiv.className = 'modal-overlay';
+        modalDiv.id = modalId;
+        modalDiv.innerHTML = `
+            <div class="modal-content">
+                <div class="section-title" style="margin-bottom: 14px;"><span>Registrar Nueva Visita</span></div>
+                <div class="grid-2" style="margin-bottom: 14px;">
+                    <div class="field-group">
+                        <label>Fecha</label>
+                        <input type="date" id="${modalId}_fecha" value="${todayStr}">
+                    </div>
+                    <div class="field-group">
+                        <label>Hora</label>
+                        <input type="time" id="${modalId}_hora" value="${currentTimeStr}">
+                    </div>
+                </div>
+                <div class="field-group" style="margin-bottom: 14px;">
+                    <label>Tipos de Visita (Selección múltiple)</label>
+                    <div class="custom-scrollbar" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px;">
+                        ${checkboxesHtml}
+                    </div>
+                </div>
+                <div class="field-group" style="margin-bottom: 18px;">
+                    <label>Resumen de Tareas / Observaciones</label>
+                    <textarea id="${modalId}_resumen" rows="3" placeholder="Detalla brevemente la visita..."></textarea>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn-dark" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+                    <button type="button" class="btn-light" onclick="saveNewVisitFromModal(${pharmacyId}, '${modalId}')">Guardar Visita</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalDiv);
+    }
+
+    function saveNewVisitFromModal(pharmacyId, modalId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (!p) return;
+
+        const selectedDate = document.getElementById(modalId + '_fecha').value || new Date().toISOString().split('T')[0];
+        const selectedTime = document.getElementById(modalId + '_hora').value || "";
+        
+        let rawSelected = [];
+        visitTypesList.forEach((_, idx) => {
+            const chk = document.getElementById(`${modalId}_type_${idx}`);
+            if (chk && chk.checked) {
+                rawSelected.push(chk.value);
+            }
+        });
+
+        let finalTypeStr = 'Visita: Comercial informativa';
+        if (rawSelected.length > 0) {
+            let cleaned = rawSelected.map(t => t.replace(/^Visita:\s*/i, ''));
+            finalTypeStr = 'Visita: ' + cleaned.join('. ') + '.';
+        }
+
+        const summaryText = document.getElementById(modalId + '_resumen').value;
+
+        if (!p.visitas) p.visitas = [];
+        p.visitas.push({ id: Date.now(), fecha: selectedDate, hora: selectedTime, tipo: finalTypeStr, resumen: summaryText });
+
+        document.getElementById(modalId).remove();
+        renderWorkspace();
+    }
+
+    function editVisitSummaryModal(pharmacyId, visitId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (!p || !p.visitas) return;
+        const v = p.visitas.find(item => item.id === visitId);
+        if (!v) return;
+
+        const modalId = 'modalEditSummary_' + Date.now();
+        
+        let checkboxesHtml = visitTypesList.map((type, idx) => {
+            let typeClean = type.replace(/^Visita:\s*/i, '').toLowerCase();
+            let vTipoLower = (v.tipo || '').toLowerCase();
+            let isChecked = vTipoLower.includes(typeClean);
+            return `
+                <div class="checkbox-group" style="margin-bottom: 6px;">
+                    <input type="checkbox" id="${modalId}_type_${idx}" value="${type}" ${isChecked ? 'checked' : ''}>
+                    <label for="${modalId}_type_${idx}">${type}</label>
+                </div>
+            `;
+        }).join('');
+
+        const modalDiv = document.createElement('div');
+        modalDiv.className = 'modal-overlay';
+        modalDiv.id = modalId;
+        modalDiv.innerHTML = `
+            <div class="modal-content">
+                <div class="section-title" style="margin-bottom: 14px;"><span>Editar Visita</span></div>
+                <div class="grid-2" style="margin-bottom: 14px;">
+                    <div class="field-group">
+                        <label>Fecha</label>
+                        <input type="date" id="${modalId}_fecha" value="${v.fecha || ''}">
+                    </div>
+                    <div class="field-group">
+                        <label>Hora</label>
+                        <input type="time" id="${modalId}_hora" value="${v.hora || ''}">
+                    </div>
+                </div>
+                <div class="field-group" style="margin-bottom: 14px;">
+                    <label>Tipos de Visita (Selección múltiple)</label>
+                    <div class="custom-scrollbar" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px;">
+                        ${checkboxesHtml}
+                    </div>
+                </div>
+                <div class="field-group" style="margin-bottom: 18px;">
+                    <label>Resumen / Observaciones</label>
+                    <textarea id="${modalId}_resumen" rows="4">${v.resumen || ''}</textarea>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn-dark" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+                    <button type="button" class="btn-light" onclick="saveEditedVisitFromModal(${pharmacyId}, ${visitId}, '${modalId}')">Guardar Cambios</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalDiv);
+    }
+
+    function saveEditedVisitFromModal(pharmacyId, visitId, modalId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (!p || !p.visitas) return;
+        const v = p.visitas.find(item => item.id === visitId);
+        if (v) {
+            v.fecha = document.getElementById(modalId + '_fecha').value || v.fecha;
+            v.hora = document.getElementById(modalId + '_hora').value || "";
+            
+            let rawSelected = [];
+            visitTypesList.forEach((_, idx) => {
+                const chk = document.getElementById(`${modalId}_type_${idx}`);
+                if (chk && chk.checked) {
+                    rawSelected.push(chk.value);
+                }
+            });
+
+            if (rawSelected.length > 0) {
+                let cleaned = rawSelected.map(t => t.replace(/^Visita:\s*/i, ''));
+                v.tipo = 'Visita: ' + cleaned.join('. ') + '.';
+            }
+            v.resumen = document.getElementById(modalId + '_resumen').value;
+        }
+        document.getElementById(modalId).remove();
+        renderWorkspace();
+    }
+
+    function deleteVisit(pharmacyId, visitId) {
+        const p = appState.pharmacies.find(x => x.id === pharmacyId);
+        if (p && p.visitas) {
+            p.visitas = p.visitas.filter(v => v.id !== visitId);
+            renderWorkspace();
+        }
+    }
+
+    function clearForm() {
+        const p = getActivePharmacy();
+        if (!p) {
+            alert("No hay ninguna farmacia seleccionada para limpiar.");
+            return;
+        }
+        p.nombre = ""; p.titular = ""; p.fecha_visita = ""; p.codigo_cliente = ""; p.hefame_informatica = ""; p.direccion = ""; p.telefono = ""; p.email = ""; p.software = ""; p.distribuidor = ""; p.agrupacion = ""; p.observaciones = "";
+        p.auditorias = [createBlankAuditObject()];
+        p.selectedAuditIndex = 0;
+        p.visitas = [];
+        renderWorkspace();
+    }
+
+    async function saveJSON() {
+        const validPharmacies = appState.pharmacies.filter(f => {
+            return (f.nombre && f.nombre.trim() !== "") || 
+                   (f.titular && f.titular.trim() !== "") || 
+                   (f.codigo_cliente && f.codigo_cliente.trim() !== "");
+        });
+
+        const globalData = {
+            tecnicoGlobal: appState.globalTechnician,
+            farmacias: validPharmacies
+        };
+        const jsonString = JSON.stringify(globalData, null, 2);
+        
+        let techClean = appState.globalTechnician 
+            ? appState.globalTechnician.replace(/\s*-\s*\d{4}-\d{2}-\d{2}.*/g, '').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_\-\s]/g, '').trim() 
+            : 'Tecnico';
+        let todayStr = new Date().toISOString().split('T')[0];
+        let filename = `${techClean} - Gestion_Farmacias - ${todayStr}.json`;
+        
+        if ('showSaveFilePicker' in window) {
+            try {
+                const opts = {
+                    suggestedName: filename,
+                    types: [{
+                        description: 'Archivo JSON',
+                        accept: { 'application/json': ['.json'] }
+                    }],
+                };
+                const handle = await window.showSaveFilePicker(opts);
+                const writable = await handle.createWritable();
+                await writable.write(jsonString);
+                await writable.close();
+                showCheckPopup();
+                return;
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error('Error con showSaveFilePicker:', err);
+                } else {
+                    return;
+                }
+            }
+        }
+
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        showCheckPopup();
+    }
+
+    function showCheckPopup() {
+        const popup = document.createElement('div');
+        popup.className = 'success-popup';
+        popup.innerHTML = '&#10004;';
+        document.body.appendChild(popup);
+        setTimeout(() => popup.remove(), 1300);
+    }
+
+    function loadJSON(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+
+        let processedCount = 0;
+        let newlyLoadedPharmacies = [];
+
+        Array.from(files).forEach(file => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const loadedData = JSON.parse(e.target.result);
+                    if (loadedData && Array.isArray(loadedData.farmacias)) {
+                        if (loadedData.tecnicoGlobal && !appState.globalTechnician) {
+                            appState.globalTechnician = loadedData.tecnicoGlobal;
+                            document.getElementById('globalTechnicianInput').value = loadedData.tecnicoGlobal;
+                        }
+                        loadedData.farmacias.forEach(f => {
+                            ensureAuditStructure(f);
+                            newlyLoadedPharmacies.push(f);
+                        });
+                    }
+                } catch (err) {
+                    console.error("Error al procesar archivo:", err);
+                }
+
+                processedCount++;
+                if (processedCount === files.length) {
+                    if (newlyLoadedPharmacies.length > 0) {
+                        newlyLoadedPharmacies.forEach(nf => {
+                            if (!appState.pharmacies.some(ex => ex.id === nf.id)) {
+                                appState.pharmacies.push(nf);
+                            }
+                        });
+                        showCheckPopup();
+                        renderWorkspace();
+                    } else {
+                        alert("El archivo no contiene un formato de farmacias válido.");
+                    }
+                    event.target.value = '';
+                }
+            };
+            reader.readAsText(file);
+        });
+    }
+
+    window.onload = function() {
+        appState.pharmacies = [];
+        appState.selectedPharmacyId = null;
+        switchMainTab('details');
+        initHeaderMoleculesAnimation();
+    };
+</script>
+
+</body>
+</html>
