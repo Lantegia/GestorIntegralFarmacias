@@ -129,6 +129,7 @@
                     const authorDisplayName = (appState.globalTechnician && appState.globalTechnician.trim())
                         ? appState.globalTechnician.trim()
                         : (user.displayName || user.email || "Compañero");
+                    let savedAuditPharmCount = 0;
                     const corporateData = {};
                     appState.pharmacies.forEach(f => {
                         const normSoft = typeof normalizeSoftwareValue === 'function' ? normalizeSoftwareValue(f.software || "") : (f.software || "");
@@ -137,6 +138,7 @@
                         f.distribuidor = normDist;
 
                         const realAudits = Array.isArray(f.auditorias) ? f.auditorias.filter(a => a.configuracion && a.configuracion.puestosSelector && a.configuracion.puestosSelector !== "") : [];
+                        if (realAudits.length > 0) savedAuditPharmCount++;
                         corporateData[f.id] = {
                             id: f.id,
                             nombre: f.nombre || "",
@@ -171,11 +173,13 @@
                     }
                     const corpDocRef = doc(db, "empresa_datos", "navarra");
                     const encryptedPayload = await encryptEnterprisePayload(corporateData, enterprisePassphrase);
+                    console.info(`[CloudSave] Subiendo empresa_datos/navarra (${Object.keys(corporateData).length} farmacias, ${savedAuditPharmCount} con auditorías)...`);
                     await setDoc(corpDocRef, {
                         encrypted: encryptedPayload,
                         updatedAt: new Date().toISOString(),
                         updatedBy: user.email || user.uid
                     });
+                    console.info("[CloudSave] empresa_datos/navarra guardado OK");
 
                     // 3. Publish encrypted personal visits to shared team visits document (readable only with Google Login + Enterprise key)
                     const teamVisitsDocRef = doc(db, "empresa_datos", "visitas_equipo");
@@ -259,6 +263,8 @@
                                 corpMap = corpRaw;
                             }
                             if (corpMap && Object.keys(corpMap).length > 0) {
+                                const loadedAuditCount = Object.values(corpMap).filter(item => item && Array.isArray(item.auditorias) && item.auditorias.length > 0).length;
+                                console.info(`[CloudLoad] empresa_datos/navarra descifrado (${Object.keys(corpMap).length} farmacias, ${loadedAuditCount} con auditorías, updatedAt=${corpRaw.updatedAt || '?'})`);
                                 mergeCorporateData(corpMap);
                             }
                         }
@@ -3080,6 +3086,7 @@ function updateTopBarPharmacySelect() {
 
     function mergeIncomingPharmacy(nf) {
         if (!nf) return;
+        const nfHasRealAudits = Array.isArray(nf.auditorias) && nf.auditorias.some(a => a && a.configuracion && a.configuracion.puestosSelector && a.configuracion.puestosSelector !== "");
         ensureAuditStructure(nf);
 
         let existing = appState.pharmacies.find(ex => String(ex.id) === String(nf.id));
@@ -3135,7 +3142,7 @@ function updateTopBarPharmacySelect() {
                 if (nf.software) existing.software = normalizeSoftwareValue(nf.software);
                 if (nf.distribuidor) existing.distribuidor = normalizeDistributorValue(nf.distribuidor);
                 if (nf.agrupacion) existing.agrupacion = nf.agrupacion;
-                if (Array.isArray(nf.auditorias) && nf.auditorias.length > 0) {
+                if (nfHasRealAudits) {
                     nf.auditorias.forEach(a => {
                         if (Array.isArray(a.puestos)) {
                             a.puestos.forEach(pt => {
